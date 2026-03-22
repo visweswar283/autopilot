@@ -1,0 +1,8 @@
+DROP TABLE IF EXISTS usage_daily;
+DROP TABLE IF EXISTS portal_credentials;
+DROP TABLE IF EXISTS applications;
+DROP TABLE IF EXISTS user_job_scores;
+DROP TABLE IF EXISTS resumes;
+DROP TABLE IF EXISTS profiles;
+DROP TABLE IF EXISTS users;
+DROP TABLE IF EXISTS jobs;

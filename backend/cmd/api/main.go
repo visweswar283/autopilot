@@ -1,0 +1,78 @@
+package main
+
+import (
+	"log"
+	"net/http"
+
+	"github.com/applypilot/backend/internal/handlers"
+	"github.com/applypilot/backend/internal/middleware"
+	"github.com/applypilot/backend/internal/repository"
+	"github.com/applypilot/backend/internal/service"
+	"github.com/applypilot/backend/pkg/config"
+	"github.com/applypilot/backend/pkg/database"
+	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+)
+
+func main() {
+	cfg := config.Load()
+
+	db := database.NewPostgres(cfg.DatabaseURL)
+	_ = database.NewRedis(cfg.RedisURL)
+
+	// Repositories
+	userRepo := repository.NewUserRepository(db)
+	jobRepo := repository.NewJobRepository(db)
+	appRepo := repository.NewApplicationRepository(db)
+	profileRepo := repository.NewProfileRepository(db)
+
+	// Services
+	authSvc := service.NewAuthService(userRepo, cfg.JWTS)
+
+	// Handlers
+	authH := handlers.NewAuthHandler(authSvc)
+	jobH := handlers.NewJobHandler(jobRepo)
+	appH := handlers.NewApplicationHandler(appRepo)
+	profileH := handlers.NewProfileHandler(profileRepo)
+	statsH := handlers.NewStatsHandler(db)
+
+	r := gin.Default()
+	r.Use(middleware.CORS())
+
+	// Health + metrics
+	r.GET("/health", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"status": "ok"}) })
+	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
+
+	// Auth routes (public)
+	v1 := r.Group("/api/v1")
+	{
+		auth := v1.Group("/auth")
+		{
+			auth.POST("/register", authH.Register)
+			auth.POST("/login", authH.Login)
+		}
+	}
+
+	// Authenticated routes
+	protected := v1.Group("")
+	protected.Use(middleware.JWTAuth(cfg.JWTS))
+	protected.Use(middleware.TenantMiddleware(db))
+	{
+		protected.GET("/jobs", jobH.List)
+		protected.GET("/jobs/:id", jobH.GetByID)
+		protected.PATCH("/jobs/:id/status", jobH.UpdateStatus)
+
+		protected.GET("/applications", appH.List)
+		protected.GET("/applications/:id", appH.GetByID)
+
+		protected.GET("/profile", profileH.Get)
+		protected.PUT("/profile", profileH.Update)
+
+		protected.GET("/stats", statsH.Get)
+	}
+
+	log.Printf("Server starting on :%s", cfg.Port)
+	if err := r.Run(":" + cfg.Port); err != nil {
+		log.Fatalf("server error: %v", err)
+	}
+}

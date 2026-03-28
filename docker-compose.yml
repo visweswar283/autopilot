@@ -70,13 +70,18 @@ services:
       - TARGET_LOCATIONS=Remote,San Francisco,New York
       - MIN_SALARY=120000
       - SCRAPER_INTERVAL_HOURS=2
+      - APPLY_INTERVAL_HOURS=4
+      - MAX_APPLIES_PER_USER=20
       - HEADLESS=true
       - ML_SERVICE_URL=http://ml-service:8001
+      - SESSIONS_DIR=/tmp/sessions
     depends_on:
       postgres:
         condition: service_healthy
+      ml-service:
+        condition: service_healthy
     volumes:
-      - scraper_sessions:/app   # persist LinkedIn cookies between runs
+      - scraper_sessions:/tmp/sessions   # persist portal cookies between runs
     restart: unless-stopped
 
   prometheus:

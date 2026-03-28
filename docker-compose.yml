@@ -45,6 +45,22 @@ services:
     depends_on:
       - backend
 
+  scraper:
+    build: ./workers
+    env_file: .env
+    environment:
+      - TARGET_ROLES=Software Engineer,Backend Engineer,Full Stack Engineer
+      - TARGET_LOCATIONS=Remote,San Francisco,New York
+      - MIN_SALARY=120000
+      - SCRAPER_INTERVAL_HOURS=2
+      - HEADLESS=true
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - scraper_sessions:/app   # persist LinkedIn cookies between runs
+    restart: unless-stopped
+
   prometheus:
     image: prom/prometheus:latest
     ports:
@@ -62,3 +78,4 @@ services:
 volumes:
   pgdata:
   grafana_data:
+  scraper_sessions:

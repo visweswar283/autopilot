@@ -45,6 +45,23 @@ services:
     depends_on:
       - backend
 
+  ml-service:
+    build: ./ml-service
+    ports:
+      - "8001:8001"
+    env_file: .env
+    volumes:
+      - ml_models:/root/.cache   # cache downloaded models between restarts
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
   scraper:
     build: ./workers
     env_file: .env
@@ -54,6 +71,7 @@ services:
       - MIN_SALARY=120000
       - SCRAPER_INTERVAL_HOURS=2
       - HEADLESS=true
+      - ML_SERVICE_URL=http://ml-service:8001
     depends_on:
       postgres:
         condition: service_healthy
@@ -79,3 +97,4 @@ volumes:
   pgdata:
   grafana_data:
   scraper_sessions:
+  ml_models:

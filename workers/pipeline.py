@@ -1,10 +1,11 @@
 """
-Scraping pipeline — runs all scrapers and saves results to DB.
+Scraping pipeline — runs all scrapers, saves results to DB, then triggers ML scoring.
 Called by the scheduler every 2 hours.
 """
 import asyncio
 import json
-from datetime import date
+import os
+import httpx
 from loguru import logger
 
 from scrapers.linkedin_scraper import LinkedInScraper
@@ -13,6 +14,8 @@ from scrapers.base import JobListing
 from dedup import make_fingerprint, make_cross_portal_fingerprint
 from db import upsert_job
 from config import TARGET_ROLES, TARGET_LOCATIONS, HEADLESS
+
+ML_SERVICE_URL = os.getenv("ML_SERVICE_URL", "http://ml-service:8001")
 
 
 async def run_pipeline():
@@ -43,7 +46,25 @@ async def run_pipeline():
             logger.error(f"{scraper_name} failed: {e}")
 
     logger.info(f"Pipeline complete — {total_new} new jobs saved, {total_seen} duplicates skipped")
+
+    # Trigger ML scoring for new jobs
+    if total_new > 0:
+        await _trigger_scoring()
+
     return total_new
+
+
+async def _trigger_scoring():
+    """Notify ML service to score new jobs against all user resumes."""
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(f"{ML_SERVICE_URL}/health")
+            if resp.status_code == 200:
+                logger.info("ML service is up — scoring will run automatically")
+            else:
+                logger.warning("ML service not responding — scoring skipped this run")
+    except Exception as e:
+        logger.warning(f"Could not reach ML service: {e} — scoring skipped")
 
 
 def _save_jobs(jobs: list[JobListing]) -> tuple[int, int]:

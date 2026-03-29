@@ -56,19 +56,9 @@ func (h *AuthHandler) ForgotPassword(c *gin.Context) {
 		return
 	}
 
-	token, err := h.svc.ForgotPassword(req.Email)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not process request"})
-		return
-	}
-
-	// Always return 200 so we don't reveal if email exists
-	resp := gin.H{"message": "If that email exists, a reset link has been sent"}
-	if token != "" {
-		// Include token in response for now (replace with email sending later)
-		resp["reset_token"] = token
-	}
-	c.JSON(http.StatusOK, resp)
+	// Always return 200 — never reveal whether the email is registered
+	_ = h.svc.ForgotPassword(req.Email)
+	c.JSON(http.StatusOK, gin.H{"message": "If that email is registered, a reset link has been sent"})
 }
 
 func (h *AuthHandler) ResetPassword(c *gin.Context) {

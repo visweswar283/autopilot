@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"log"
 	"time"
 
 	"github.com/applypilot/backend/internal/auth"
@@ -14,11 +15,18 @@ import (
 
 type AuthService struct {
 	users     *repository.UserRepository
+	profiles  *repository.ProfileRepository
+	email     *EmailService
 	jwtSecret string
 }
 
-func NewAuthService(users *repository.UserRepository, jwtSecret string) *AuthService {
-	return &AuthService{users: users, jwtSecret: jwtSecret}
+func NewAuthService(
+	users *repository.UserRepository,
+	profiles *repository.ProfileRepository,
+	email *EmailService,
+	jwtSecret string,
+) *AuthService {
+	return &AuthService{users: users, profiles: profiles, email: email, jwtSecret: jwtSecret}
 }
 
 type RegisterRequest struct {
@@ -51,6 +59,16 @@ func (s *AuthService) Register(req RegisterRequest) (*models.User, *TokenPair, e
 		return nil, nil, errors.New("email already registered")
 	}
 
+	// Auto-create empty profile so the dashboard never 404s on /profile
+	if err := s.profiles.Create(&models.Profile{UserID: user.ID}); err != nil {
+		log.Printf("[auth] could not create profile for user %s: %v", user.ID, err)
+	}
+
+	// Send welcome email (non-fatal)
+	if err := s.email.SendWelcome(user.Email, ""); err != nil {
+		log.Printf("[auth] welcome email failed for %s: %v", user.Email, err)
+	}
+
 	tokens, err := s.generateTokenPair(user)
 	return user, tokens, err
 }
@@ -69,40 +87,30 @@ func (s *AuthService) Login(req LoginRequest) (*models.User, *TokenPair, error) 
 	return user, tokens, err
 }
 
-func (s *AuthService) generateTokenPair(user *models.User) (*TokenPair, error) {
-	access, err := auth.GenerateAccessToken(user.ID, string(user.Plan), s.jwtSecret)
-	if err != nil {
-		return nil, err
-	}
-	refresh, err := auth.GenerateRefreshToken(user.ID, s.jwtSecret)
-	if err != nil {
-		return nil, err
-	}
-	return &TokenPair{AccessToken: access, RefreshToken: refresh}, nil
-}
-
-// ForgotPassword generates a reset token and returns it.
-// In production wire this to an email sender; for now we return the token
-// in the response so it can be tested without SMTP configured.
-func (s *AuthService) ForgotPassword(email string) (string, error) {
+// ForgotPassword generates a reset token, stores it, and emails the reset link.
+// Always returns nil so we never reveal whether the email is registered.
+func (s *AuthService) ForgotPassword(email string) error {
 	user, err := s.users.FindByEmail(email)
 	if err != nil {
-		// Don't reveal whether the email exists
-		return "", nil
+		return nil // silently do nothing if email not found
 	}
 
-	// Generate a cryptographically random 32-byte token
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
-		return "", err
+		return err
 	}
 	token := hex.EncodeToString(b)
 
 	if err := s.users.CreateResetToken(user.ID, token, time.Now().Add(1*time.Hour)); err != nil {
-		return "", err
+		return err
 	}
 
-	return token, nil
+	if err := s.email.SendPasswordReset(email, token); err != nil {
+		log.Printf("[auth] password reset email failed for %s: %v", email, err)
+		return err
+	}
+
+	return nil
 }
 
 // ResetPassword validates the token and updates the password.
@@ -122,4 +130,16 @@ func (s *AuthService) ResetPassword(token, newPassword string) error {
 	}
 
 	return s.users.MarkResetTokenUsed(token)
+}
+
+func (s *AuthService) generateTokenPair(user *models.User) (*TokenPair, error) {
+	access, err := auth.GenerateAccessToken(user.ID, string(user.Plan), s.jwtSecret)
+	if err != nil {
+		return nil, err
+	}
+	refresh, err := auth.GenerateRefreshToken(user.ID, s.jwtSecret)
+	if err != nil {
+		return nil, err
+	}
+	return &TokenPair{AccessToken: access, RefreshToken: refresh}, nil
 }

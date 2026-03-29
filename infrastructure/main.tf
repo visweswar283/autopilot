@@ -177,7 +177,7 @@ resource "aws_db_instance" "postgres" {
   skip_final_snapshot    = true
   deletion_protection    = false
 
-  backup_retention_period = 7
+  backup_retention_period = 0
   tags = local.tags
 }
 
@@ -193,7 +193,7 @@ resource "aws_elasticache_subnet_group" "main" {
 resource "aws_elasticache_cluster" "redis" {
   cluster_id           = "${var.app_name}-redis"
   engine               = "redis"
-  node_type            = "cache.t2.micro"   # free tier
+  node_type            = "cache.t3.micro"
   num_cache_nodes      = 1
   parameter_group_name = "default.redis7"
   port                 = 6379
@@ -245,10 +245,11 @@ resource "aws_iam_instance_profile" "ec2_profile" {
 
 resource "aws_instance" "app" {
   ami                    = data.aws_ami.amazon_linux.id
-  instance_type          = "t2.micro"   # free tier
+  instance_type          = "t3.micro"   # free tier
   subnet_id              = aws_subnet.public_a.id
   vpc_security_group_ids = [aws_security_group.ec2.id]
   iam_instance_profile   = aws_iam_instance_profile.ec2_profile.name
+  key_name               = "applypilot-key"
 
   root_block_device {
     volume_size = 20   # free tier: 30 GB EBS gp2 total

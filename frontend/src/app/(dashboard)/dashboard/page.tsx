@@ -1,7 +1,9 @@
 'use client'
-import { Briefcase, Send, TrendingUp, Trophy, ArrowUpRight, Clock, Zap, BarChart2 } from 'lucide-react'
+import { useState, useCallback } from 'react'
+import { Briefcase, Send, TrendingUp, Trophy, ArrowUpRight, Clock, Zap, BarChart2, CheckCircle2, X } from 'lucide-react'
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { useAuthStore } from '@/store/auth'
+import { useEventStream, StreamEvent } from '@/hooks/useEventStream'
 
 const activityData = [
   { day: 'Mon', applications: 4, responses: 1 },
@@ -36,8 +38,29 @@ const stats = [
   { label: 'Interviews',       value: '6',     change: '2 upcoming',icon: Trophy,      color: 'text-purple-400',  bg: 'bg-purple-500/10' },
 ]
 
+type Toast = { id: number; title: string; company: string; portal: string }
+
 export default function DashboardPage() {
-  const user = useAuthStore((s) => s.user)
+  const user   = useAuthStore((s) => s.user)
+  const [toasts, setToasts] = useState<Toast[]>([])
+  const [liveCount, setLiveCount] = useState(0)
+
+  const handleEvent = useCallback((event: StreamEvent) => {
+    if (event.type === 'application' && event.status === 'applied' && event.job) {
+      const toast: Toast = {
+        id:      Date.now(),
+        title:   event.job.title,
+        company: event.job.company,
+        portal:  event.job.portal,
+      }
+      setToasts((prev) => [toast, ...prev].slice(0, 5))
+      setLiveCount((n) => n + 1)
+      // Auto-dismiss after 6s
+      setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== toast.id)), 6000)
+    }
+  }, [])
+
+  useEventStream(handleEvent)
 
   return (
     <div className="p-8 animate-fade-in">
@@ -52,9 +75,34 @@ export default function DashboardPage() {
         <div className="flex items-center gap-2 glass-card px-4 py-2">
           <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse-slow" />
           <span className="text-sm text-slate-300 font-medium">Autopilot active</span>
+          {liveCount > 0 && (
+            <span className="ml-1 bg-brand-500 text-white text-xs font-bold px-1.5 py-0.5 rounded-full">
+              +{liveCount}
+            </span>
+          )}
           <Zap size={14} className="text-brand-400" />
         </div>
       </div>
+
+      {/* Live application toasts */}
+      {toasts.length > 0 && (
+        <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-2">
+          {toasts.map((t) => (
+            <div key={t.id}
+              className="flex items-start gap-3 glass-card border border-emerald-500/30 px-4 py-3 rounded-xl shadow-lg animate-fade-in min-w-[280px]">
+              <CheckCircle2 size={18} className="text-emerald-400 mt-0.5 flex-shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-white text-sm font-medium truncate">Applied: {t.title}</p>
+                <p className="text-slate-400 text-xs">{t.company} · {t.portal}</p>
+              </div>
+              <button onClick={() => setToasts((prev) => prev.filter((x) => x.id !== t.id))}
+                className="text-slate-500 hover:text-slate-300 flex-shrink-0">
+                <X size={14} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-8">

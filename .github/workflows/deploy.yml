@@ -1,0 +1,158 @@
+name: Build & Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  AWS_REGION:    us-east-1
+  ECR_REGISTRY:  ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com
+  APP_NAME:      applypilot
+
+jobs:
+  ###########################################################################
+  # 1. Test
+  ###########################################################################
+  test-backend:
+    name: Test Go Backend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: "1.22" }
+      - run: cd backend && go test ./... -race -timeout 60s
+
+  test-frontend:
+    name: Test Next.js Frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "20", cache: "npm", cache-dependency-path: frontend/package-lock.json }
+      - run: cd frontend && npm ci && npm run build
+
+  ###########################################################################
+  # 2. Build & Push Docker images to ECR
+  ###########################################################################
+  build-and-push:
+    name: Build & Push Images
+    needs: [test-backend, test-frontend]
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    outputs:
+      image_tag: ${{ steps.meta.outputs.tag }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume:    arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/github-actions-deploy
+          aws-region:        ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Image tag
+        id: meta
+        run: echo "tag=${GITHUB_SHA::8}" >> "$GITHUB_OUTPUT"
+
+      - name: Build & push backend
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          push: true
+          tags: |
+            ${{ env.ECR_REGISTRY }}/${{ env.APP_NAME }}/backend:latest
+            ${{ env.ECR_REGISTRY }}/${{ env.APP_NAME }}/backend:${{ steps.meta.outputs.tag }}
+
+      - name: Build & push workers
+        uses: docker/build-push-action@v5
+        with:
+          context: ./workers
+          push: true
+          tags: |
+            ${{ env.ECR_REGISTRY }}/${{ env.APP_NAME }}/workers:latest
+            ${{ env.ECR_REGISTRY }}/${{ env.APP_NAME }}/workers:${{ steps.meta.outputs.tag }}
+
+      - name: Build & push ml-service
+        uses: docker/build-push-action@v5
+        with:
+          context: ./ml-service
+          push: true
+          tags: |
+            ${{ env.ECR_REGISTRY }}/${{ env.APP_NAME }}/ml-service:latest
+            ${{ env.ECR_REGISTRY }}/${{ env.APP_NAME }}/ml-service:${{ steps.meta.outputs.tag }}
+
+  ###########################################################################
+  # 3. Deploy frontend to S3 + CloudFront
+  ###########################################################################
+  deploy-frontend:
+    name: Deploy Frontend (S3 + CloudFront)
+    needs: [test-frontend]
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with: { node-version: "20", cache: "npm", cache-dependency-path: frontend/package-lock.json }
+
+      - name: Build static export
+        working-directory: frontend
+        env:
+          NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
+        run: npm ci && npm run build
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/github-actions-deploy
+          aws-region:     ${{ env.AWS_REGION }}
+
+      - name: Sync to S3
+        run: |
+          aws s3 sync frontend/out/ s3://${{ secrets.S3_FRONTEND_BUCKET }}/ \
+            --delete \
+            --cache-control "public,max-age=31536000,immutable" \
+            --exclude "*.html"
+          aws s3 sync frontend/out/ s3://${{ secrets.S3_FRONTEND_BUCKET }}/ \
+            --delete \
+            --cache-control "public,max-age=0,must-revalidate" \
+            --include "*.html"
+
+      - name: Invalidate CloudFront cache
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }} \
+            --paths "/*"
+
+  ###########################################################################
+  # 4. Deploy backend — SSH pull new images on EC2
+  ###########################################################################
+  deploy-backend:
+    name: Deploy Backend (EC2)
+    needs: [build-and-push]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host:     ${{ secrets.EC2_HOST }}
+          username: ec2-user
+          key:      ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            aws ecr get-login-password --region us-east-1 | \
+              docker login --username AWS --password-stdin ${{ env.ECR_REGISTRY }}
+            cd /opt/applypilot
+            docker compose pull
+            docker compose up -d --no-deps backend workers ml-service
+            docker image prune -f

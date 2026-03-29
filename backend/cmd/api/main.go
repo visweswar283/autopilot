@@ -17,8 +17,8 @@ import (
 func main() {
 	cfg := config.Load()
 
-	db := database.NewPostgres(cfg.DatabaseURL)
-	_ = database.NewRedis(cfg.RedisURL)
+	db  := database.NewPostgres(cfg.DatabaseURL)
+	rdb := database.NewRedis(cfg.RedisURL)
 
 	// Repositories
 	userRepo := repository.NewUserRepository(db)
@@ -30,11 +30,12 @@ func main() {
 	authSvc := service.NewAuthService(userRepo, cfg.JWTS)
 
 	// Handlers
-	authH := handlers.NewAuthHandler(authSvc)
-	jobH := handlers.NewJobHandler(jobRepo)
-	appH := handlers.NewApplicationHandler(appRepo)
+	authH   := handlers.NewAuthHandler(authSvc)
+	jobH    := handlers.NewJobHandler(jobRepo)
+	appH    := handlers.NewApplicationHandler(appRepo)
 	profileH := handlers.NewProfileHandler(profileRepo)
-	statsH := handlers.NewStatsHandler(db)
+	statsH  := handlers.NewStatsHandler(db)
+	eventsH := handlers.NewEventsHandler(rdb)
 
 	r := gin.Default()
 	r.Use(middleware.CORS())
@@ -69,6 +70,8 @@ func main() {
 		protected.PUT("/profile", profileH.Update)
 
 		protected.GET("/stats", statsH.Get)
+
+		protected.GET("/events/stream", eventsH.Stream)
 	}
 
 	log.Printf("Server starting on :%s", cfg.Port)

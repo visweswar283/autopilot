@@ -1,0 +1,6 @@
+# Copy to terraform.tfvars and fill in real values (never commit terraform.tfvars)
+aws_region  = "us-east-1"
+app_name    = "applypilot"
+db_password = "CHANGE_ME_strong_password"
+jwt_secret  = "CHANGE_ME_32_char_random_string"
+domain_name = ""   # optional: "applypilot.io"

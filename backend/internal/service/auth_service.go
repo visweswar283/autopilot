@@ -30,8 +30,13 @@ func NewAuthService(
 }
 
 type RegisterRequest struct {
-	Email    string `json:"email"    binding:"required,email"`
-	Password string `json:"password" binding:"required,min=8"`
+	Email        string `json:"email"         binding:"required,email"`
+	Password     string `json:"password"      binding:"required,min=8"`
+	MobileNumber string `json:"mobile_number"`
+	Address      string `json:"address"`
+	LinkedInURL  string `json:"linkedin_url"`
+	PortfolioURL string `json:"portfolio_url"`
+	GitHubURL    string `json:"github_url"`
 }
 
 type LoginRequest struct {
@@ -59,8 +64,15 @@ func (s *AuthService) Register(req RegisterRequest) (*models.User, *TokenPair, e
 		return nil, nil, errors.New("email already registered")
 	}
 
-	// Auto-create empty profile so the dashboard never 404s on /profile
-	if err := s.profiles.Create(&models.Profile{UserID: user.ID}); err != nil {
+	// Auto-create profile with data provided at registration
+	if err := s.profiles.Create(&models.Profile{
+		UserID:       user.ID,
+		Phone:        req.MobileNumber,
+		Location:     req.Address,
+		LinkedInURL:  req.LinkedInURL,
+		PortfolioURL: req.PortfolioURL,
+		GitHubURL:    req.GitHubURL,
+	}); err != nil {
 		log.Printf("[auth] could not create profile for user %s: %v", user.ID, err)
 	}
 

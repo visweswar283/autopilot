@@ -1,14 +1,30 @@
-name: Build & Deploy
+name: Deploy ApplyPilot
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - production
+      services:
+        description: 'Which services to deploy'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - backend-only
+          - frontend-only
+          - workers-only
 
 env:
-  AWS_REGION:    us-east-1
-  ECR_REGISTRY:  ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com
-  APP_NAME:      applypilot
+  AWS_REGION:   us-east-1
+  ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com
+  APP_NAME:     applypilot
 
 jobs:
   ###########################################################################
@@ -17,6 +33,7 @@ jobs:
   test-backend:
     name: Test Go Backend
     runs-on: ubuntu-latest
+    if: ${{ inputs.services == 'all' || inputs.services == 'backend-only' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -26,6 +43,7 @@ jobs:
   test-frontend:
     name: Test Next.js Frontend
     runs-on: ubuntu-latest
+    if: ${{ inputs.services == 'all' || inputs.services == 'frontend-only' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -36,8 +54,9 @@ jobs:
   # 2. Build & Push Docker images to ECR
   ###########################################################################
   build-and-push:
-    name: Build & Push Images
-    needs: [test-backend, test-frontend]
+    name: Build & Push Images to ECR
+    needs: [test-backend]
+    if: ${{ inputs.services == 'all' || inputs.services == 'backend-only' || inputs.services == 'workers-only' }}
     runs-on: ubuntu-latest
     permissions:
       id-token: write
@@ -51,17 +70,18 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume:    arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/github-actions-deploy
-          aws-region:        ${{ env.AWS_REGION }}
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/github-actions-deploy
+          aws-region:     ${{ env.AWS_REGION }}
 
       - name: Login to ECR
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Image tag
+      - name: Set image tag
         id: meta
         run: echo "tag=${GITHUB_SHA::8}" >> "$GITHUB_OUTPUT"
 
       - name: Build & push backend
+        if: ${{ inputs.services == 'all' || inputs.services == 'backend-only' }}
         uses: docker/build-push-action@v5
         with:
           context: ./backend
@@ -71,6 +91,7 @@ jobs:
             ${{ env.ECR_REGISTRY }}/${{ env.APP_NAME }}/backend:${{ steps.meta.outputs.tag }}
 
       - name: Build & push workers
+        if: ${{ inputs.services == 'all' || inputs.services == 'workers-only' }}
         uses: docker/build-push-action@v5
         with:
           context: ./workers
@@ -80,6 +101,7 @@ jobs:
             ${{ env.ECR_REGISTRY }}/${{ env.APP_NAME }}/workers:${{ steps.meta.outputs.tag }}
 
       - name: Build & push ml-service
+        if: ${{ inputs.services == 'all' || inputs.services == 'workers-only' }}
         uses: docker/build-push-action@v5
         with:
           context: ./ml-service
@@ -89,11 +111,12 @@ jobs:
             ${{ env.ECR_REGISTRY }}/${{ env.APP_NAME }}/ml-service:${{ steps.meta.outputs.tag }}
 
   ###########################################################################
-  # 3. Deploy frontend to S3 + CloudFront
+  # 3. Deploy frontend → S3 + CloudFront
   ###########################################################################
   deploy-frontend:
     name: Deploy Frontend (S3 + CloudFront)
     needs: [test-frontend]
+    if: ${{ inputs.services == 'all' || inputs.services == 'frontend-only' }}
     runs-on: ubuntu-latest
     permissions:
       id-token: write
@@ -135,11 +158,12 @@ jobs:
             --paths "/*"
 
   ###########################################################################
-  # 4. Deploy backend — SSH pull new images on EC2
+  # 4. Deploy backend + workers → EC2 via SSH
   ###########################################################################
   deploy-backend:
-    name: Deploy Backend (EC2)
+    name: Deploy Backend & Workers (EC2)
     needs: [build-and-push]
+    if: ${{ inputs.services == 'all' || inputs.services == 'backend-only' || inputs.services == 'workers-only' }}
     runs-on: ubuntu-latest
 
     steps:
@@ -156,3 +180,4 @@ jobs:
             docker compose pull
             docker compose up -d --no-deps backend workers ml-service
             docker image prune -f
+            echo "Deploy complete at $(date)"

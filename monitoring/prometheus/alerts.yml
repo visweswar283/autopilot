@@ -1,0 +1,93 @@
+groups:
+  - name: applypilot_apply_bot
+    rules:
+      # Fire if > 20% of applications in the last 30 min hit CAPTCHA
+      - alert: HighCaptchaRate
+        expr: |
+          rate(apply_captcha_total[30m]) /
+          (rate(apply_total[30m]) + 0.001) > 0.20
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CAPTCHA rate ({{ $value | humanizePercentage }})"
+          description: "More than 20% of apply attempts are hitting CAPTCHAs. Bot may be detected."
+
+      # Fire if apply failure rate exceeds 40%
+      - alert: HighApplyFailureRate
+        expr: |
+          rate(apply_failed_total[30m]) /
+          (rate(apply_total[30m]) + 0.001) > 0.40
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High apply failure rate ({{ $value | humanizePercentage }})"
+          description: "More than 40% of apply attempts are failing. Check adapter logs."
+
+      # Fire if no applications have been submitted in the last 2 hours
+      - alert: ApplyBotSilent
+        expr: increase(apply_total[2h]) == 0
+        for: 2h
+        labels:
+          severity: warning
+        annotations:
+          summary: "Apply bot has submitted 0 applications in 2 hours"
+          description: "Bot may be stuck, crashed, or all queues are empty."
+
+  - name: applypilot_scraper
+    rules:
+      # Fire if scraper has not ingested any jobs in the last 3 hours
+      - alert: ScraperSilent
+        expr: increase(jobs_scraped_total[3h]) == 0
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "Job scraper has not found any jobs in 3 hours"
+          description: "Check scraper logs — LinkedIn/Workday selectors may have changed."
+
+  - name: applypilot_api
+    rules:
+      # API error rate > 5%
+      - alert: HighApiErrorRate
+        expr: |
+          rate(http_requests_total{status=~"5.."}[5m]) /
+          rate(http_requests_total[5m]) > 0.05
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "API error rate above 5% ({{ $value | humanizePercentage }})"
+
+      # API p99 latency > 2s
+      - alert: SlowApiLatency
+        expr: |
+          histogram_quantile(0.99,
+            rate(http_request_duration_seconds_bucket[5m])
+          ) > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "API p99 latency above 2s"
+
+  - name: applypilot_infra
+    rules:
+      # Backend down
+      - alert: BackendDown
+        expr: up{job="backend"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Backend is down"
+
+      # ML service down
+      - alert: MLServiceDown
+        expr: up{job="ml-service"} == 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "ML scoring service is down — new jobs will not be scored"

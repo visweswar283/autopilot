@@ -49,8 +49,10 @@ func main() {
 	{
 		auth := v1.Group("/auth")
 		{
-			auth.POST("/register", authH.Register)
-			auth.POST("/login", authH.Login)
+			auth.POST("/register",        authH.Register)
+			auth.POST("/login",           authH.Login)
+			auth.POST("/forgot-password", authH.ForgotPassword)
+			auth.POST("/reset-password",  authH.ResetPassword)
 		}
 	}
 

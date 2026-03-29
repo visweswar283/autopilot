@@ -27,10 +27,14 @@ func main() {
 	profileRepo := repository.NewProfileRepository(db)
 
 	// Services
-	authSvc := service.NewAuthService(userRepo, cfg.JWTS)
+	emailSvc := service.NewEmailService(
+		cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPUser, cfg.SMTPPass,
+		cfg.SMTPFrom, cfg.AppURL,
+	)
+	authSvc := service.NewAuthService(userRepo, profileRepo, emailSvc, cfg.JWTS)
 
 	// Handlers
-	authH   := handlers.NewAuthHandler(authSvc)
+	authH := handlers.NewAuthHandler(authSvc)
 	jobH    := handlers.NewJobHandler(jobRepo)
 	appH    := handlers.NewApplicationHandler(appRepo)
 	profileH := handlers.NewProfileHandler(profileRepo)
@@ -38,7 +42,7 @@ func main() {
 	eventsH := handlers.NewEventsHandler(rdb)
 
 	r := gin.Default()
-	r.Use(middleware.CORS())
+	r.Use(middleware.CORS(cfg.AllowedOrigins))
 
 	// Health + metrics
 	r.GET("/health", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"status": "ok"}) })
@@ -76,7 +80,7 @@ func main() {
 		protected.GET("/events/stream", eventsH.Stream)
 	}
 
-	log.Printf("Server starting on :%s", cfg.Port)
+	log.Printf("Server starting on :%s (allowed origins: %s)", cfg.Port, cfg.AllowedOrigins)
 	if err := r.Run(":" + cfg.Port); err != nil {
 		log.Fatalf("server error: %v", err)
 	}

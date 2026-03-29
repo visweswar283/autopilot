@@ -24,6 +24,14 @@ DATABASE_URL=${db_url}
 REDIS_URL=${redis_url}
 JWT_SECRET=${jwt_secret}
 PORT=8080
+APP_URL=https://www.applypilotjobs.com
+ALLOWED_ORIGINS=https://applypilotjobs.com,https://www.applypilotjobs.com
+# Email — fill in after SES SMTP credentials are created in AWS console
+SMTP_HOST=email-smtp.us-east-1.amazonaws.com
+SMTP_PORT=587
+SMTP_USER=${smtp_user}
+SMTP_PASS=${smtp_pass}
+SMTP_FROM=noreply@applypilotjobs.com
 HEADLESS=true
 SCRAPER_INTERVAL_HOURS=2
 APPLY_INTERVAL_HOURS=4

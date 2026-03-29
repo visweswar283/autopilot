@@ -32,7 +32,9 @@ variable "aws_region"   { default = "us-east-1" }
 variable "app_name"     { default = "applypilot" }
 variable "db_password"  { sensitive = true }
 variable "jwt_secret"   { sensitive = true }
-variable "domain_name"  { default = "" }   # optional: your custom domain
+variable "smtp_user"    { default = "" }          # SES SMTP username
+variable "smtp_pass"    { sensitive = true; default = "" }  # SES SMTP password
+variable "domain_name"  { default = "" }          # optional: your custom domain
 
 locals {
   tags = { Project = var.app_name, ManagedBy = "terraform" }
@@ -101,6 +103,18 @@ resource "aws_security_group" "ec2" {
     to_port     = 22
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]   # tighten to your IP in production
+  }
+  ingress {
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]   # nginx HTTP (redirects to HTTPS)
+  }
+  ingress {
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]   # nginx HTTPS
   }
   ingress {
     from_port   = 8080
@@ -262,6 +276,8 @@ resource "aws_instance" "app" {
     db_url        = "postgres://applypilot:${var.db_password}@${aws_db_instance.postgres.address}:5432/jobassistant"
     redis_url     = "redis://${aws_elasticache_cluster.redis.cache_nodes[0].address}:6379"
     jwt_secret    = var.jwt_secret
+    smtp_user     = var.smtp_user
+    smtp_pass     = var.smtp_pass
     ecr_registry  = "${data.aws_caller_identity.current.account_id}.dkr.ecr.${var.aws_region}.amazonaws.com"
   }))
 

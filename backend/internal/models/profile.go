@@ -5,6 +5,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/lib/pq"
+	"gorm.io/gorm"
 )
 
 type Profile struct {
@@ -22,4 +23,11 @@ type Profile struct {
 	Skills          pq.StringArray `gorm:"type:text[]"                                    json:"skills"`
 	AutoApplyConfig []byte         `gorm:"type:jsonb"                                     json:"auto_apply_config"`
 	UpdatedAt       time.Time      `                                                      json:"updated_at"`
+}
+
+func (p *Profile) BeforeCreate(tx *gorm.DB) error {
+	if p.ID == uuid.Nil {
+		p.ID = uuid.New()
+	}
+	return nil
 }

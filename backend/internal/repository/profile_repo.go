@@ -14,6 +14,10 @@ func NewProfileRepository(db *gorm.DB) *ProfileRepository {
 	return &ProfileRepository{db: db}
 }
 
+func (r *ProfileRepository) Create(profile *models.Profile) error {
+	return r.db.Create(profile).Error
+}
+
 func (r *ProfileRepository) GetByUserID(userID uuid.UUID) (*models.Profile, error) {
 	var profile models.Profile
 	err := r.db.Where("user_id = ?", userID).First(&profile).Error

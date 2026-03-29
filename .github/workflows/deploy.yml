@@ -179,5 +179,6 @@ jobs:
             cd /opt/applypilot
             docker compose pull
             docker compose up -d --no-deps backend workers ml-service
+            # Migrations run automatically inside the backend container on startup
             docker image prune -f
             echo "Deploy complete at $(date)"

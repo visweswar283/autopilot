@@ -1,7 +1,10 @@
 package service
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
+	"time"
 
 	"github.com/applypilot/backend/internal/auth"
 	"github.com/applypilot/backend/internal/models"
@@ -76,4 +79,47 @@ func (s *AuthService) generateTokenPair(user *models.User) (*TokenPair, error) {
 		return nil, err
 	}
 	return &TokenPair{AccessToken: access, RefreshToken: refresh}, nil
+}
+
+// ForgotPassword generates a reset token and returns it.
+// In production wire this to an email sender; for now we return the token
+// in the response so it can be tested without SMTP configured.
+func (s *AuthService) ForgotPassword(email string) (string, error) {
+	user, err := s.users.FindByEmail(email)
+	if err != nil {
+		// Don't reveal whether the email exists
+		return "", nil
+	}
+
+	// Generate a cryptographically random 32-byte token
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	token := hex.EncodeToString(b)
+
+	if err := s.users.CreateResetToken(user.ID, token, time.Now().Add(1*time.Hour)); err != nil {
+		return "", err
+	}
+
+	return token, nil
+}
+
+// ResetPassword validates the token and updates the password.
+func (s *AuthService) ResetPassword(token, newPassword string) error {
+	userID, err := s.users.FindValidResetToken(token)
+	if err != nil {
+		return errors.New("invalid or expired reset token")
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+
+	if err := s.users.UpdatePassword(userID, string(hash)); err != nil {
+		return err
+	}
+
+	return s.users.MarkResetTokenUsed(token)
 }

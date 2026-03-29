@@ -33,7 +33,10 @@ variable "app_name"     { default = "applypilot" }
 variable "db_password"  { sensitive = true }
 variable "jwt_secret"   { sensitive = true }
 variable "smtp_user"    { default = "" }          # SES SMTP username
-variable "smtp_pass"    { sensitive = true; default = "" }  # SES SMTP password
+variable "smtp_pass" {
+  sensitive = true
+  default   = ""
+}  # SES SMTP password
 variable "domain_name"  { default = "" }          # optional: your custom domain
 
 locals {
